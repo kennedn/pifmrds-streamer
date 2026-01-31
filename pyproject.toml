@@ -1,0 +1,9 @@
+[project]
+name = "pifmrds-streamer"
+version = "0.1.0"
+requires-python = ">=3.7,<3.9"
+
+dependencies = [
+  "flask==2.0.3"
+]
+
