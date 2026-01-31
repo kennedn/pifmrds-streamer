@@ -4,6 +4,8 @@
 
 It provides a local web interface to manage radio stations, automatically starts playing on boot, and updates RDS text with station and track information where available.
 
+![](./media/website.png)
+
 ## Requirements
 
 A Raspberry Pi capable of running PiFmRds, with an FM antenna connected as described in the PiFmRds documentation.
