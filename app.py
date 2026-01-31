@@ -256,105 +256,237 @@ ctl = RadioController()
 
 TEMPLATE = """
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
   <title>pifmrds-streamer</title>
 
+  <!-- Material Symbols -->
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined"
+        rel="stylesheet">
+
   <style>
+    :root {
+      --bg: #f6f7f9;
+      --card: #ffffff;
+      --border: #e0e0e0;
+      --text: #111;
+      --muted: #666;
+      --accent: #25a49f;
+      --danger: #b00020;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f1115;
+        --card: #171a21;
+        --border: #2a2e39;
+        --text: #f1f1f1;
+        --muted: #9aa0aa;
+        --accent: #125250;
+        --danger: #6f0015;
+      }
+    }
+
+    * { box-sizing: border-box; }
+
     body {
-      font-family: sans-serif;
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    header {
+      padding: 16px;
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 1.25rem;
+    }
+
+    main {
       max-width: 900px;
-      margin: 20px auto;
-      padding: 0 12px;
-    }
-    .card {
-      border: 1px solid #ddd;
-      border-radius: 10px;
+      margin: 0 auto;
       padding: 12px;
-      margin: 10px 0;
     }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+
     .row {
       display: flex;
       gap: 10px;
       flex-wrap: wrap;
       align-items: center;
     }
+
+    .grow {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    h2, h3 {
+      margin: 0 0 8px 0;
+      font-size: 1rem;
+    }
+
     input[type=text] {
       width: 100%;
-      padding: 8px;
-      box-sizing: border-box;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 1rem;
     }
+
     button {
-      padding: 8px 12px;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
       cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
-    .muted {
-      color: #666;
-      font-size: 0.9em;
+
+    button.primary {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
     }
-    .now {
-      background: #f7f7f7;
+
+    button.danger {
+      background: var(--danger);
+      color: #fff;
+      border-color: var(--danger);
+    }
+
+    button:active {
+      transform: scale(0.96);
+    }
+
+    .material-symbols-outlined {
+      font-size: 22px;
+      line-height: 1;
+    }
+
+
+    .station-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    @media (max-width: 600px) {
+      header h1 {
+        font-size: 1.1rem;
+      }
+
+      button {
+        width: 100%;
+      }
+
+      .station-actions button {
+        flex: 1;
+      }
     }
   </style>
 </head>
 
 <body>
-  <h1>pifmrds-streamer</h1>
+  <header>
+    <h1>pifmrds-streamer</h1>
+  </header>
 
-  <div class="card now">
-    <div><strong>Now playing:</strong> {{ now_name or "—" }}</div>
-    <div class="muted">{{ now_url or "" }}</div>
-    <div class="muted">{{ rds or "—" }}</div>
-    <div class="row" style="margin-top:10px;">
-      <form method="post" action="/stop">
-        <button type="submit">Stop</button>
+  <main>
+
+    <div class="card">
+      <h3>Now playing</h3>
+      <div><strong>{{ now_name or "—" }}</strong></div>
+      <div class="muted">{{ now_url or "" }}</div>
+      <div class="muted">RDS: {{ rds or "—" }}</div>
+
+      <div class="station-actions">
+        <form method="post" action="/stop">
+          <button class="danger" type="submit" aria-label="Stop">
+            <span class="material-symbols-outlined">stop</span>
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Add / update station</h3>
+      <div class="muted">
+        "{{ default }}" is protected and cannot be overwritten.
+      </div>
+
+      <form method="post" action="/add" style="margin-top:10px;">
+        <div class="row">
+          <div class="grow">
+            <input type="text" name="name" placeholder="Station name" required>
+          </div>
+          <div class="grow">
+            <input type="text" name="url" placeholder="Stream URL" required>
+          </div>
+        </div>
+        <div style="margin-top:10px;">
+          <button class="primary" type="submit">
+            <span class="material-symbols-outlined">save</span>
+          </button>
+        </div>
       </form>
     </div>
-  </div>
 
-  <div class="card">
-    <h3>Add / update station</h3>
-    <form method="post" action="/add" style="margin-top:10px;">
-      <div class="row">
-        <div style="flex:1;">
-          <div class="muted">Name</div>
-          <input type="text" name="name" placeholder="Station name" required>
-        </div>
-        <div style="flex:3;">
-          <div class="muted">Stream URL</div>
-          <input type="text" name="url" placeholder="http(s)://..." required>
-        </div>
-      </div>
-      <div style="margin-top:10px;">
-        <button type="submit">Save</button>
-      </div>
-    </form>
-  </div>
+    <h2>Stations</h2>
 
-  <h2>Stations</h2>
+    {% for name, url in stations.items() %}
+      <div class="card">
+        <div><strong>{{ name }}</strong></div>
+        <div class="muted">{{ url }}</div>
 
-  {% for name, url in stations.items() %}
-    <div class="card">
-      <div><strong>{{ name }}</strong></div>
-      <div class="muted">{{ url }}</div>
-      <div class="row" style="margin-top:10px;">
-        <form method="post" action="/select">
-          <input type="hidden" name="name" value="{{ name }}">
-          <button type="submit">Play</button>
-        </form>
-
-        {% if name != default %}
-          <form method="post" action="/delete"
-                onsubmit="return confirm('Delete station {{ name }}?');">
+        <div class="station-actions">
+          <form method="post" action="/select">
             <input type="hidden" name="name" value="{{ name }}">
-            <button type="submit">Delete</button>
+            <button class="primary" type="submit" aria-label="Play">
+              <span class="material-symbols-outlined">play_arrow</span>
+            </button>
           </form>
-        {% endif %}
-      </div>
-    </div>
-  {% endfor %}
 
+          {% if name != default %}
+            <form method="post" action="/delete"
+                  onsubmit="return confirm('Delete station {{ name }}?');">
+              <input type="hidden" name="name" value="{{ name }}">
+              <button class="danger" type="submit" aria-label="Delete">
+                <span class="material-symbols-outlined">delete</span>
+              </button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+
+  </main>
 </body>
 </html>
 """
