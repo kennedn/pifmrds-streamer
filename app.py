@@ -1,25 +1,13 @@
 #!/usr/bin/env python3
 """
 pifmrds-streamer
-
-- Web UI to add/select/delete stations (Flask)
-- Stores stations + last selected station as JSON in:
-    /root/.config/pifmrds-streamer/stations.json
-  (runs as root)
-- Autoplays last station on boot; falls back to the default station "Dance UK"
-- Default station "Dance UK" is protected: cannot be deleted or overwritten
-- Streams audio via sox -> pifmrds stdin
-- Updates RDS PS/RT at runtime via pifmrds -ctl FIFO, using ICY StreamTitle where available
-- Metadata fetching/parsing is pure Python (no curl, no ffmpeg)
 """
 
 import json
 import os
 import re
-import time
 import stat
 import shutil
-import socket
 import threading
 import subprocess
 import urllib.request
@@ -27,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
-from flask import Flask, request, redirect, url_for, render_template_string
+from flask import Flask, request, redirect, render_template_string
 
 # -------------------------
 # Configuration
@@ -42,38 +30,28 @@ RDS_CTL_FIFO = f"/tmp/{APP_NAME}_rds_ctl"
 
 FREQ = "100.0"
 
-DEFAULT_STATION_NAME = "Dance UK"
+DEFAULT_STATION_NAME = "Dance UK (default)"
 DEFAULT_STREAM_URL = "http://51.89.148.171:8022/"
-DEFAULT_PS = "DanceUK"  # <= 8 chars
+DEFAULT_PS = "DanceUK"
 
 WEB_HOST = "0.0.0.0"
 WEB_PORT = 80
 
 REQUIRED_CMDS = ["pifmrds", "sox"]
 
-def set_nice(n: int):
-    def _fn():
-        os.nice(n)
-    return _fn
-
-# -------------------------
-# ICY metadata
-# -------------------------
-
 STREAMTITLE_RE = re.compile(r"StreamTitle='([^']*)';", re.IGNORECASE)
 
 def safe_ps(text: str) -> str:
+    """Sanitize text for RDS PS field (max 8 chars, alphanumeric + space)."""
     t = re.sub(r"[^0-9A-Za-z ]+", "", text).strip()
     return (t or DEFAULT_PS)[:8]
 
 def safe_rt(text: str) -> str:
+    """Sanitize text for RDS RT field (max 64 chars)."""
     return (text.strip() or " ")[:64]
 
-# -------------------------
-# Persistence
-# -------------------------
-
 def load_state_json() -> Tuple[Dict[str, str], Optional[str]]:
+    """Load stations and last selected station from state file."""
     if not STATE_FILE.exists():
         return {}, None
     try:
@@ -85,20 +63,19 @@ def load_state_json() -> Tuple[Dict[str, str], Optional[str]]:
     return dict(stations), last if isinstance(last, str) else None
 
 def save_state_json(stations: Dict[str, str], last: Optional[str]) -> None:
+    """Save stations and last selected station to state file."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     tmp = STATE_FILE.with_suffix(".tmp")
     tmp.write_text(json.dumps({"stations": stations, "last": last}, indent=2) + "\n")
     os.replace(tmp, STATE_FILE)
 
 def enforce_default_station(stations: Dict[str, str]) -> None:
+    """Ensure the default station exists in the stations dictionary."""
     stations[DEFAULT_STATION_NAME] = DEFAULT_STREAM_URL
-
-# -------------------------
-# Controller
-# -------------------------
 
 @dataclass
 class RadioController:
+    """Manages radio streaming, RDS metadata updates, and metadata fetching."""
     stations: Dict[str, str] = field(default_factory=dict)
     last_station: Optional[str] = None
 
@@ -117,6 +94,7 @@ class RadioController:
     # ---- FIFO handling ----
 
     def _ensure_fifo(self):
+        """Create RDS control FIFO if it doesn't exist."""
         if os.path.exists(RDS_CTL_FIFO):
             if not stat.S_ISFIFO(os.stat(RDS_CTL_FIFO).st_mode):
                 os.remove(RDS_CTL_FIFO)
@@ -124,6 +102,7 @@ class RadioController:
             os.mkfifo(RDS_CTL_FIFO)
 
     def _open_ctl(self):
+        """Open a file descriptor to the RDS control FIFO."""
         if self.ctl_file:
             return
         self._ensure_fifo()
@@ -131,6 +110,7 @@ class RadioController:
         self.ctl_file = os.fdopen(self.ctl_fd, "w", buffering=1)
 
     def _write_ctl(self, line: str):
+        """Write a command line to the RDS control FIFO."""
         if not self.ctl_file:
             self._open_ctl()
         self.ctl_file.write(line.rstrip() + "\n")
@@ -139,6 +119,7 @@ class RadioController:
     # ---- lifecycle ----
 
     def stop(self):
+        """Stop the currently playing station and terminate all processes."""
         self.stop_event.set()
         for p in (self.sox_proc, self.pifmrds_proc):
             if p and p.poll() is None:
@@ -153,21 +134,20 @@ class RadioController:
         self.last_title = ""
 
     def start(self, name: str, url: str):
+        """Start playing a station with the given name and stream URL."""
         self.stop()
         self.stop_event.clear()
         self._ensure_fifo()
 
         # Start pifmrds
         self.pifmrds_proc = subprocess.Popen(
-            ["pifmrds", "-freq", FREQ, "-ctl", RDS_CTL_FIFO, "-audio", "-"],
+            ["nice", "-10", "pifmrds", "-freq", FREQ, "-ctl", RDS_CTL_FIFO, "-audio", "-"],
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
-            bufsize=0,
-            preexec_fn=set_nice(-10),
+            bufsize=0
         )
 
-        time.sleep(0.2)
         if self.pifmrds_proc.poll() is not None:
             raise SystemExit("pifmrds failed to start")
 
@@ -182,7 +162,6 @@ class RadioController:
             stderr=subprocess.PIPE,
         )
 
-        time.sleep(0.2)
         if self.sox_proc.poll() is not None:
             raise SystemExit("sox failed to start")
 
@@ -197,9 +176,8 @@ class RadioController:
             daemon=True
         ).start()
 
-    # ---- metadata ----
-
     def _metadata_loop(self, url: str):
+        """Fetch and update RDS metadata from ICY stream headers."""
         try:
             req = urllib.request.Request(
                 url,
@@ -242,14 +220,11 @@ class RadioController:
             resp.close()
 
     def startup_autoplay(self):
+        """Start playing the last selected station or the default station."""
         if self.last_station and self.last_station in self.stations:
             self.start(self.last_station, self.stations[self.last_station])
         else:
             self.start(DEFAULT_STATION_NAME, DEFAULT_STREAM_URL)
-
-# -------------------------
-# Web UI
-# -------------------------
 
 app = Flask(__name__)
 ctl = RadioController()
@@ -424,7 +399,7 @@ TEMPLATE = """
       <h3>Now playing</h3>
       <div><strong>{{ now_name or "—" }}</strong></div>
       <div class="muted">{{ now_url or "" }}</div>
-      <div class="muted">RDS: {{ rds or "—" }}</div>
+      <div class="muted">{{ rds or "—" }}</div>
 
       <div class="station-actions">
         <form method="post" action="/stop">
@@ -437,10 +412,6 @@ TEMPLATE = """
 
     <div class="card">
       <h3>Add / update station</h3>
-      <div class="muted">
-        "{{ default }}" is protected and cannot be overwritten.
-      </div>
-
       <form method="post" action="/add" style="margin-top:10px;">
         <div class="row">
           <div class="grow">
@@ -494,6 +465,7 @@ TEMPLATE = """
 
 @app.route("/")
 def index():
+    """Render the main web UI page."""
     enforce_default_station(ctl.stations)
     save_state_json(ctl.stations, ctl.last_station)
     return render_template_string(
@@ -507,6 +479,7 @@ def index():
 
 @app.post("/add")
 def add():
+    """Add or update a station with the provided name and URL."""
     name = request.form["name"].strip()
     url = request.form["url"].strip()
     if name != DEFAULT_STATION_NAME:
@@ -516,6 +489,7 @@ def add():
 
 @app.post("/delete")
 def delete():
+    """Delete a station (unless it's the default station)."""
     name = request.form["name"]
     if name != DEFAULT_STATION_NAME:
         ctl.stations.pop(name, None)
@@ -524,20 +498,19 @@ def delete():
 
 @app.post("/select")
 def select():
+    """Select and start playing a station."""
     name = request.form["name"]
     ctl.start(name, ctl.stations[name])
     return redirect("/")
 
 @app.post("/stop")
 def stop():
+    """Stop the currently playing station."""
     ctl.stop()
     return redirect("/")
 
-# -------------------------
-# Main
-# -------------------------
-
 def main():
+    """Initialize the application and start the Flask web server."""
     for cmd in REQUIRED_CMDS:
         if not shutil.which(cmd):
             raise SystemExit(f"Missing command: {cmd}")

@@ -109,4 +109,3 @@ View logs:
 ```bash
 sudo journalctl -fu pifmrds-streamer
 ```
-
