@@ -51,6 +51,11 @@ WEB_PORT = 80
 
 REQUIRED_CMDS = ["pifmrds", "sox"]
 
+def set_nice(n: int):
+    def _fn():
+        os.nice(n)
+    return _fn
+
 # -------------------------
 # ICY metadata
 # -------------------------
@@ -159,6 +164,7 @@ class RadioController:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             bufsize=0,
+            preexec_fn=set_nice(-10),
         )
 
         time.sleep(0.2)
