@@ -41,6 +41,12 @@ REQUIRED_CMDS = ["pifmrds", "sox"]
 
 STREAMTITLE_RE = re.compile(r"StreamTitle='([^']*)';", re.IGNORECASE)
 
+def set_nice(n: int):
+    """Return a function to set process nice value."""
+    def _fn():
+        os.nice(n)
+    return _fn
+
 def safe_ps(text: str) -> str:
     """Sanitize text for RDS PS field (max 8 chars, alphanumeric + space)."""
     t = re.sub(r"[^0-9A-Za-z ]+", "", text).strip()
@@ -141,11 +147,12 @@ class RadioController:
 
         # Start pifmrds
         self.pifmrds_proc = subprocess.Popen(
-            ["nice", "-10", "pifmrds", "-freq", FREQ, "-ctl", RDS_CTL_FIFO, "-audio", "-"],
+            ["pifmrds", "-freq", FREQ, "-ctl", RDS_CTL_FIFO, "-audio", "-"],
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
-            bufsize=0
+            bufsize=0,
+            preexec_fn=set_nice(-10)
         )
 
         if self.pifmrds_proc.poll() is not None:
@@ -528,4 +535,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
