@@ -3,6 +3,7 @@
 pifmrds-streamer
 """
 
+import logging
 import json
 import os
 import re
@@ -23,6 +24,9 @@ from flask import Flask, request, redirect, render_template_string
 
 APP_NAME = "pifmrds-streamer"
 
+# module-level logger (configured in main)
+logger = logging.getLogger(APP_NAME)
+
 CONFIG_DIR = Path.home() / ".config" / APP_NAME
 STATE_FILE = CONFIG_DIR / "stations.json"
 
@@ -30,8 +34,8 @@ RDS_CTL_FIFO = f"/tmp/{APP_NAME}_rds_ctl"
 
 FREQ = "100.0"
 
-DEFAULT_STATION_NAME = "Dance UK (default)"
-DEFAULT_STREAM_URL = "http://51.89.148.171:8022/"
+DEFAULT_STATION_NAME = "Test (default)"
+DEFAULT_STREAM_URL = "http://pc.int:8000/test.mp3"
 DEFAULT_PS = "DanceUK"
 
 WEB_HOST = "0.0.0.0"
@@ -57,16 +61,34 @@ def safe_rt(text: str) -> str:
     return (text.strip() or " ")[:64]
 
 def load_state_json() -> Tuple[Dict[str, str], Optional[str]]:
-    """Load stations and last selected station from state file."""
+    """Load stations and last selected station from state file.
+
+    Always includes the default station at position 0. If the last selected station
+    no longer exists, defaults to the default station.
+    """
+    # Default station first
+    stations: Dict[str, str] = {DEFAULT_STATION_NAME: DEFAULT_STREAM_URL}
+    last: Optional[str] = DEFAULT_STATION_NAME
+
     if not STATE_FILE.exists():
-        return {}, None
+        return stations, last
+
     try:
         data = json.loads(STATE_FILE.read_text())
-    except Exception:
-        return {}, None
-    stations = data.get("stations", {})
-    last = data.get("last")
-    return dict(stations), last if isinstance(last, str) else None
+    except Exception:  # pylint: disable=W0718
+        logger.exception("Error loading state file %s", STATE_FILE)
+        return stations, last
+
+    loaded_stations = data.get("stations", {}) or {}
+    # Ensure default remains first
+    loaded_stations.pop(DEFAULT_STATION_NAME, None)
+    stations.update(loaded_stations)
+
+    loaded_last = data.get("last")
+    if isinstance(loaded_last, str) and loaded_last in stations:
+        last = loaded_last
+
+    return stations, last
 
 def save_state_json(stations: Dict[str, str], last: Optional[str]) -> None:
     """Save stations and last selected station to state file."""
@@ -74,10 +96,6 @@ def save_state_json(stations: Dict[str, str], last: Optional[str]) -> None:
     tmp = STATE_FILE.with_suffix(".tmp")
     tmp.write_text(json.dumps({"stations": stations, "last": last}, indent=2) + "\n")
     os.replace(tmp, STATE_FILE)
-
-def enforce_default_station(stations: Dict[str, str]) -> None:
-    """Ensure the default station exists in the stations dictionary."""
-    stations[DEFAULT_STATION_NAME] = DEFAULT_STREAM_URL
 
 @dataclass
 class RadioController:
@@ -91,6 +109,7 @@ class RadioController:
 
     pifmrds_proc: Optional[subprocess.Popen] = None
     sox_proc: Optional[subprocess.Popen] = None
+    metadata_thread: Optional[threading.Thread] = None
 
     ctl_fd: Optional[int] = None
     ctl_file = None  # type: ignore
@@ -122,45 +141,64 @@ class RadioController:
         self.ctl_file.write(line.rstrip() + "\n")
         self.ctl_file.flush()
 
+    def _read_stderr(self, name: str, proc: subprocess.Popen):
+        """Read and print stderr from a process."""
+        try:
+            if proc.stderr:
+                for line in iter(proc.stderr.readline, b''):
+                    if line:
+                        logger.error("[%s] %s", name, line.decode('utf-8', 'ignore').rstrip())
+        except Exception: # pylint: disable=W0718
+            logger.exception("Error reading %s stderr", name)
+
     # ---- lifecycle ----
 
-    def stop(self):
+    def stop(self, skip_pifmrds_restart: bool = False):
         """Stop the currently playing station and terminate all processes."""
         self.stop_event.set()
-        for p in (self.sox_proc, self.pifmrds_proc):
+        processes = [self.sox_proc, self.pifmrds_proc] if not skip_pifmrds_restart else [self.sox_proc]
+        for p in processes:
             if p and p.poll() is None:
                 try:
                     p.terminate()
-                except Exception:
+                except Exception: # pylint: disable=W0718
                     pass
         self.sox_proc = None
-        self.pifmrds_proc = None
+        self.pifmrds_proc = None if not skip_pifmrds_restart else self.pifmrds_proc
         self.current_name = None
         self.current_url = None
         self.last_title = ""
 
-    def start(self, name: str, url: str):
+    def start(self, name: str, url: str, skip_pifmrds_restart: bool = False):
         """Start playing a station with the given name and stream URL."""
-        self.stop()
+        self.stop(skip_pifmrds_restart=skip_pifmrds_restart)
         self.stop_event.clear()
         self._ensure_fifo()
 
         # Start pifmrds
-        self.pifmrds_proc = subprocess.Popen(
-            ["pifmrds", "-freq", FREQ, "-ctl", RDS_CTL_FIFO, "-audio", "-"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            bufsize=0,
-            preexec_fn=set_nice(-10)
-        )
+        if not skip_pifmrds_restart:
+            # pylint: disable=W1509
+            self.pifmrds_proc = subprocess.Popen(
+                ["pifmrds", "-freq", FREQ, "-ctl", RDS_CTL_FIFO, "-audio", "-"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                bufsize=0,
+                preexec_fn=set_nice(-10)
+            )
+            # pylint: enable=W1509
 
-        if self.pifmrds_proc.poll() is not None:
-            raise SystemExit("pifmrds failed to start")
+            if self.pifmrds_proc.poll() is not None:
+                raise SystemExit("pifmrds failed to start")
 
-        self._open_ctl()
-        self._write_ctl(f"PS {DEFAULT_PS}")
-        self._write_ctl("RT Starting...")
+            self._open_ctl()
+            self._write_ctl(f"PS {safe_ps(DEFAULT_PS)}")
+
+            threading.Thread(
+                target=self._read_stderr,
+                args=("pifmrds", self.pifmrds_proc),
+                daemon=True
+            ).start()
 
         # Start sox (exact original command)
         self.sox_proc = subprocess.Popen(
@@ -178,10 +216,48 @@ class RadioController:
         save_state_json(self.stations, self.last_station)
 
         threading.Thread(
+            target=self._read_stderr,
+            args=("sox", self.sox_proc),
+            daemon=True
+        ).start()
+
+        self.metadata_thread = threading.Thread(
             target=self._metadata_loop,
             args=(url,),
             daemon=True
+        )
+        self.metadata_thread.start()
+
+        threading.Thread(
+            target=self._monitor_processes,
+            daemon=True
         ).start()
+
+    def _monitor_processes(self):
+        """Monitor sox, pifmrds and metadata processes and restart if they fail."""
+        while not self.stop_event.is_set():
+            try:
+                # Check if either process has died
+                sox_dead = self.sox_proc and self.sox_proc.poll() is not None
+                pifmrds_dead = self.pifmrds_proc and self.pifmrds_proc.poll() is not None
+                metadata_dead = self.metadata_thread and not self.metadata_thread.is_alive()
+
+                if sox_dead or pifmrds_dead or metadata_dead:
+                    # One or more components died, restart
+                    if not self.stop_event.is_set() and self.current_name and self.current_url:
+                        logger.warning(
+                            "Failure detected (sox_dead=%s, pifmrds_dead=%s, metadata_dead=%s), restarting...",
+                            sox_dead,
+                            pifmrds_dead,
+                            metadata_dead,
+                        )
+                        self.start(self.current_name, self.current_url, skip_pifmrds_restart=not pifmrds_dead)
+                        return  # Exit this monitor thread as a new one is started
+
+                threading.Event().wait(5)  # Check every second
+            except Exception as e: # pylint: disable=W0718
+                logger.exception("Monitor error: %s", e)
+                threading.Event().wait(5)
 
     def _metadata_loop(self, url: str):
         """Fetch and update RDS metadata from ICY stream headers."""
@@ -191,7 +267,8 @@ class RadioController:
                 headers={"Icy-MetaData": "1", "User-Agent": APP_NAME},
             )
             resp = urllib.request.urlopen(req, timeout=15)
-        except Exception:
+        except Exception: # pylint: disable=W0718
+            logger.warning("Failed to open URL %s", url)
             return
 
         # Set PS from stream metadata (station name) once
@@ -403,7 +480,13 @@ TEMPLATE = """
   <main>
 
     <div class="card">
-      <h3>Now playing</h3>
+      <h3>
+        {% if is_playing %}
+          <span style="color: var(--accent);">Playing</span>
+        {% else %}
+          <span style="color: var(--danger);">Stopped</span>
+        {% endif %}
+      </h3>
       <div><strong>{{ now_name or "—" }}</strong></div>
       <div class="muted">{{ now_url or "" }}</div>
       <div class="muted">{{ rds or "—" }}</div>
@@ -473,7 +556,6 @@ TEMPLATE = """
 @app.route("/")
 def index():
     """Render the main web UI page."""
-    enforce_default_station(ctl.stations)
     save_state_json(ctl.stations, ctl.last_station)
     return render_template_string(
         TEMPLATE,
@@ -481,6 +563,7 @@ def index():
         now_name=ctl.current_name,
         now_url=ctl.current_url,
         rds=ctl.last_title,
+        is_playing=not ctl.stop_event.is_set(),
         default=DEFAULT_STATION_NAME,
     )
 
@@ -507,7 +590,7 @@ def delete():
 def select():
     """Select and start playing a station."""
     name = request.form["name"]
-    ctl.start(name, ctl.stations[name])
+    ctl.start(name, ctl.stations[name], skip_pifmrds_restart=True)
     return redirect("/")
 
 @app.post("/stop")
@@ -518,12 +601,16 @@ def stop():
 
 def main():
     """Initialize the application and start the Flask web server."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    )
+    logger.info("Starting %s", APP_NAME)
     for cmd in REQUIRED_CMDS:
         if not shutil.which(cmd):
             raise SystemExit(f"Missing command: {cmd}")
 
     stations, last = load_state_json()
-    enforce_default_station(stations)
 
     ctl.stations = stations
     ctl.last_station = last
