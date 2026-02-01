@@ -183,7 +183,7 @@ class RadioController:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             bufsize=0,
-            preexec_fn=set_nice(-10)
+            preexec_fn=set_nice(-20)   # highest priority possible
         )
         # pylint: enable=W1509
 
@@ -274,6 +274,8 @@ class RadioController:
         station_name = resp.headers.get("icy-name")
         if station_name:
             self._write_ctl(f"PS {safe_ps(station_name)}")
+            self.last_title = ""
+            self._write_ctl(f"RT  ")
 
         metaint = resp.headers.get("icy-metaint")
         if not metaint:
