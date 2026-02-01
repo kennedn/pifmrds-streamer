@@ -34,8 +34,8 @@ RDS_CTL_FIFO = f"/tmp/{APP_NAME}_rds_ctl"
 
 FREQ = "100.0"
 
-DEFAULT_STATION_NAME = "Test (default)"
-DEFAULT_STREAM_URL = "http://pc.int:8000/test.mp3"
+DEFAULT_STATION_NAME = "Dance UK (default)"
+DEFAULT_STREAM_URL = "http://51.89.148.171:8022/"
 DEFAULT_PS = "DanceUK"
 
 WEB_HOST = "0.0.0.0"
@@ -153,10 +153,10 @@ class RadioController:
 
     # ---- lifecycle ----
 
-    def stop(self, skip_pifmrds_restart: bool = False):
+    def stop(self):
         """Stop the currently playing station and terminate all processes."""
         self.stop_event.set()
-        processes = [self.sox_proc, self.pifmrds_proc] if not skip_pifmrds_restart else [self.sox_proc]
+        processes = [self.sox_proc, self.pifmrds_proc]
         for p in processes:
             if p and p.poll() is None:
                 try:
@@ -164,41 +164,40 @@ class RadioController:
                 except Exception: # pylint: disable=W0718
                     pass
         self.sox_proc = None
-        self.pifmrds_proc = None if not skip_pifmrds_restart else self.pifmrds_proc
+        self.pifmrds_proc = None
         self.current_name = None
         self.current_url = None
         self.last_title = ""
 
-    def start(self, name: str, url: str, skip_pifmrds_restart: bool = False):
+    def start(self, name: str, url: str):
         """Start playing a station with the given name and stream URL."""
-        self.stop(skip_pifmrds_restart=skip_pifmrds_restart)
+        self.stop()
         self.stop_event.clear()
         self._ensure_fifo()
 
         # Start pifmrds
-        if not skip_pifmrds_restart:
-            # pylint: disable=W1509
-            self.pifmrds_proc = subprocess.Popen(
-                ["pifmrds", "-freq", FREQ, "-ctl", RDS_CTL_FIFO, "-audio", "-"],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                bufsize=0,
-                preexec_fn=set_nice(-10)
-            )
-            # pylint: enable=W1509
+        # pylint: disable=W1509
+        self.pifmrds_proc = subprocess.Popen(
+            ["pifmrds", "-freq", FREQ, "-ctl", RDS_CTL_FIFO, "-audio", "-"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            bufsize=0,
+            preexec_fn=set_nice(-10)
+        )
+        # pylint: enable=W1509
 
-            if self.pifmrds_proc.poll() is not None:
-                raise SystemExit("pifmrds failed to start")
+        if self.pifmrds_proc.poll() is not None:
+            raise SystemExit("pifmrds failed to start")
 
-            self._open_ctl()
-            self._write_ctl(f"PS {safe_ps(DEFAULT_PS)}")
+        self._open_ctl()
+        self._write_ctl(f"PS {safe_ps(DEFAULT_PS)}")
 
-            threading.Thread(
-                target=self._read_stderr,
-                args=("pifmrds", self.pifmrds_proc),
-                daemon=True
-            ).start()
+        threading.Thread(
+            target=self._read_stderr,
+            args=("pifmrds", self.pifmrds_proc),
+            daemon=True
+        ).start()
 
         # Start sox (exact original command)
         self.sox_proc = subprocess.Popen(
@@ -251,13 +250,13 @@ class RadioController:
                             pifmrds_dead,
                             metadata_dead,
                         )
-                        self.start(self.current_name, self.current_url, skip_pifmrds_restart=not pifmrds_dead)
+                        self.start(self.current_name, self.current_url)
                         return  # Exit this monitor thread as a new one is started
 
-                threading.Event().wait(5)  # Check every second
+                threading.Event().wait(5)  # Check every 5 seconds
             except Exception as e: # pylint: disable=W0718
                 logger.exception("Monitor error: %s", e)
-                threading.Event().wait(5)
+                threading.Event().wait(5)  # Check every 5 seconds
 
     def _metadata_loop(self, url: str):
         """Fetch and update RDS metadata from ICY stream headers."""
@@ -590,7 +589,7 @@ def delete():
 def select():
     """Select and start playing a station."""
     name = request.form["name"]
-    ctl.start(name, ctl.stations[name], skip_pifmrds_restart=True)
+    ctl.start(name, ctl.stations[name])
     return redirect("/")
 
 @app.post("/stop")
