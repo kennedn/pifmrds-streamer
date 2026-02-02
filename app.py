@@ -32,7 +32,7 @@ STATE_FILE = CONFIG_DIR / "stations.json"
 
 RDS_CTL_FIFO = f"/tmp/{APP_NAME}_rds_ctl"
 
-FREQ = "100.0"
+DEFAULT_FREQ = "100.0"
 
 DEFAULT_STATION_NAME = "Dance UK (default)"
 DEFAULT_STREAM_URL = "http://51.89.148.171:8022/"
@@ -60,8 +60,8 @@ def safe_rt(text: str) -> str:
     """Sanitize text for RDS RT field (max 64 chars)."""
     return (text.strip() or " ")[:64]
 
-def load_state_json() -> Tuple[Dict[str, str], Optional[str]]:
-    """Load stations and last selected station from state file.
+def load_state_json() -> Tuple[Dict[str, str], Optional[str], Optional[str]]:
+    """Load stations last selected station and frequency from state file.
 
     Always includes the default station at position 0. If the last selected station
     no longer exists, defaults to the default station.
@@ -69,15 +69,16 @@ def load_state_json() -> Tuple[Dict[str, str], Optional[str]]:
     # Default station first
     stations: Dict[str, str] = {DEFAULT_STATION_NAME: DEFAULT_STREAM_URL}
     last: Optional[str] = DEFAULT_STATION_NAME
+    freq: Optional[str] = DEFAULT_FREQ
 
     if not STATE_FILE.exists():
-        return stations, last
+        return stations, last, freq
 
     try:
         data = json.loads(STATE_FILE.read_text())
     except Exception:  # pylint: disable=W0718
         logger.exception("Error loading state file %s", STATE_FILE)
-        return stations, last
+        return stations, last, freq
 
     loaded_stations = data.get("stations", {}) or {}
     # Ensure default remains first
@@ -88,13 +89,17 @@ def load_state_json() -> Tuple[Dict[str, str], Optional[str]]:
     if isinstance(loaded_last, str) and loaded_last in stations:
         last = loaded_last
 
-    return stations, last
+    loaded_freq = data.get("freq")
+    if isinstance(loaded_freq, str):
+        freq = loaded_freq
 
-def save_state_json(stations: Dict[str, str], last: Optional[str]) -> None:
+    return stations, last, freq
+
+def save_state_json(stations: Dict[str, str], last: Optional[str], freq: Optional[str]) -> None:
     """Save stations and last selected station to state file."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     tmp = STATE_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"stations": stations, "last": last}, indent=2) + "\n")
+    tmp.write_text(json.dumps({"stations": stations, "last": last, "freq": freq}, indent=2) + "\n")
     os.replace(tmp, STATE_FILE)
 
 @dataclass
@@ -102,6 +107,7 @@ class RadioController:
     """Manages radio streaming, RDS metadata updates, and metadata fetching."""
     stations: Dict[str, str] = field(default_factory=dict)
     last_station: Optional[str] = None
+    freq: Optional[str] = None
 
     current_name: Optional[str] = None
     current_url: Optional[str] = None
@@ -178,7 +184,7 @@ class RadioController:
         # Start pifmrds
         # pylint: disable=W1509
         self.pifmrds_proc = subprocess.Popen(
-            ["pifmrds", "-freq", FREQ, "-ctl", RDS_CTL_FIFO, "-audio", "-"],
+            ["pifmrds", "-freq", ctl.freq, "-ctl", RDS_CTL_FIFO, "-audio", "-"],
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
@@ -212,7 +218,7 @@ class RadioController:
         self.current_name = name
         self.current_url = url
         self.last_station = name
-        save_state_json(self.stations, self.last_station)
+        save_state_json(self.stations, self.last_station, self.freq)
 
         threading.Thread(
             target=self._read_stderr,
@@ -488,7 +494,7 @@ TEMPLATE = """
           <span style="color: var(--danger);">Stopped</span>
         {% endif %}
       </h3>
-      <div><strong>{{ now_name or "—" }}</strong></div>
+      <div><strong>{{ freq }} - {{ now_name or "—" }}</strong></div>
       <div class="muted">{{ now_url or "" }}</div>
       <div class="muted">{{ rds or "—" }}</div>
 
@@ -499,6 +505,22 @@ TEMPLATE = """
           </button>
         </form>
       </div>
+    </div>
+
+    <div class="card">
+      <h3>Set Frequency</h3>
+      <form method="post" action="/freq" style="margin-top:10px;">
+        <div class="row">
+          <div class="grow">
+            <input type="text" name="freq" placeholder="{{ freq }}" required>
+          </div>
+        </div>
+        <div style="margin-top:10px;">
+          <button class="primary" type="submit">
+            <span class="material-symbols-outlined">save</span>
+          </button>
+        </div>
+      </form>
     </div>
 
     <div class="card">
@@ -557,10 +579,10 @@ TEMPLATE = """
 @app.route("/")
 def index():
     """Render the main web UI page."""
-    save_state_json(ctl.stations, ctl.last_station)
     return render_template_string(
         TEMPLATE,
         stations=ctl.stations,
+        freq=ctl.freq,
         now_name=ctl.current_name,
         now_url=ctl.current_url,
         rds=ctl.last_title,
@@ -575,7 +597,7 @@ def add():
     url = request.form["url"].strip()
     if name != DEFAULT_STATION_NAME:
         ctl.stations[name] = url
-    save_state_json(ctl.stations, ctl.last_station)
+    save_state_json(ctl.stations, ctl.last_station, ctl.freq)
     return redirect("/")
 
 @app.post("/delete")
@@ -584,7 +606,14 @@ def delete():
     name = request.form["name"]
     if name != DEFAULT_STATION_NAME:
         ctl.stations.pop(name, None)
-    save_state_json(ctl.stations, ctl.last_station)
+    save_state_json(ctl.stations, ctl.last_station, ctl.freq)
+    return redirect("/")
+
+@app.post("/freq")
+def freq():
+    """Set new frequency and start pipeline."""
+    ctl.freq = request.form["freq"]
+    ctl.start(ctl.last_station, ctl.stations[ctl.last_station])
     return redirect("/")
 
 @app.post("/select")
@@ -611,12 +640,13 @@ def main():
         if not shutil.which(cmd):
             raise SystemExit(f"Missing command: {cmd}")
 
-    stations, last = load_state_json()
+    stations, last, freq = load_state_json()
 
     ctl.stations = stations
     ctl.last_station = last
+    ctl.freq = freq
 
-    save_state_json(stations, last)
+    save_state_json(stations, last, freq)
     ctl.startup_autoplay()
 
     app.run(WEB_HOST, WEB_PORT)
