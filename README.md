@@ -18,7 +18,7 @@ Install required system packages:
 
 ```bash
 sudo apt update
-sudo apt install -y sox python3 python3-venv
+sudo apt install -y ffmpeg python3 python3-venv
 ```
 
 Install PiFmRds separately by following the official instructions:
@@ -39,7 +39,8 @@ From the project directory:
 
 ```bash
 uv venv
-uv pip install flask
+source .venv/bin/activate
+uv pip install -r pyproject.toml
 ```
 
 ## Configuration
@@ -47,7 +48,7 @@ uv pip install flask
 State is stored as JSON at:
 
 ```text
-/root/.config/pifmrds-streamer/stations.json
+root/.config/pifmrds-streamer/stations.json
 ```
 
 This file contains the station list and the last selected station. It can be edited manually when the service is stopped.
@@ -75,7 +76,7 @@ On startup, the streamer resumes the last selected station or falls back to the 
 Create a systemd service:
 
 ```bash
-sudo nano /etc/systemd/system/pifmrds-streamer.service
+sudo vi /etc/systemd/system/pifmrds-streamer.service
 ```
 
 ```ini
@@ -104,7 +105,7 @@ sudo systemctl enable pifmrds-streamer
 sudo systemctl start pifmrds-streamer
 ```
 
-View logs:
+Tail logs:
 
 ```bash
 sudo journalctl -fu pifmrds-streamer

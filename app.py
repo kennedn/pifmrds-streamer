@@ -41,7 +41,7 @@ DEFAULT_PS = "DanceUK"
 WEB_HOST = "0.0.0.0"
 WEB_PORT = 80
 
-REQUIRED_CMDS = ["pifmrds", "sox"]
+REQUIRED_CMDS = ["pifmrds", "ffmpeg"]
 
 STREAMTITLE_RE = re.compile(r"StreamTitle='([^']*)';", re.IGNORECASE)
 
@@ -108,7 +108,7 @@ class RadioController:
     last_title: str = ""
 
     pifmrds_proc: Optional[subprocess.Popen] = None
-    sox_proc: Optional[subprocess.Popen] = None
+    ffmpeg_proc: Optional[subprocess.Popen] = None
     metadata_thread: Optional[threading.Thread] = None
 
     ctl_fd: Optional[int] = None
@@ -156,14 +156,14 @@ class RadioController:
     def stop(self):
         """Stop the currently playing station and terminate all processes."""
         self.stop_event.set()
-        processes = [self.sox_proc, self.pifmrds_proc]
+        processes = [self.ffmpeg_proc, self.pifmrds_proc]
         for p in processes:
             if p and p.poll() is None:
                 try:
                     p.terminate()
                 except Exception: # pylint: disable=W0718
                     pass
-        self.sox_proc = None
+        self.ffmpeg_proc = None
         self.pifmrds_proc = None
         self.current_name = None
         self.current_url = None
@@ -199,15 +199,15 @@ class RadioController:
             daemon=True
         ).start()
 
-        # Start sox (exact original command)
-        self.sox_proc = subprocess.Popen(
-            ["sox", "-t", "mp3", url, "-t", "wav", "-"],
+        # Start ffmpeg (exact original command)
+        self.ffmpeg_proc = subprocess.Popen(
+            ["ffmpeg","-hide_banner","-loglevel","error","-reconnect","1","-reconnect_streamed","1","-reconnect_delay_max","5","-i",url,"-vn","-acodec","pcm_s16le","-f","wav","-"],
             stdout=self.pifmrds_proc.stdin,
             stderr=subprocess.PIPE,
         )
 
-        if self.sox_proc.poll() is not None:
-            raise SystemExit("sox failed to start")
+        if self.ffmpeg_proc.poll() is not None:
+            raise SystemExit("ffmpeg failed to start")
 
         self.current_name = name
         self.current_url = url
@@ -216,7 +216,7 @@ class RadioController:
 
         threading.Thread(
             target=self._read_stderr,
-            args=("sox", self.sox_proc),
+            args=("ffmpeg", self.ffmpeg_proc),
             daemon=True
         ).start()
 
@@ -233,20 +233,20 @@ class RadioController:
         ).start()
 
     def _monitor_processes(self):
-        """Monitor sox, pifmrds and metadata processes and restart if they fail."""
+        """Monitor ffmpeg, pifmrds and metadata processes and restart if they fail."""
         while not self.stop_event.is_set():
             try:
                 # Check if either process has died
-                sox_dead = self.sox_proc and self.sox_proc.poll() is not None
+                ffmpeg_dead = self.ffmpeg_proc and self.ffmpeg_proc.poll() is not None
                 pifmrds_dead = self.pifmrds_proc and self.pifmrds_proc.poll() is not None
                 metadata_dead = self.metadata_thread and not self.metadata_thread.is_alive()
 
-                if sox_dead or pifmrds_dead or metadata_dead:
+                if ffmpeg_dead or pifmrds_dead or metadata_dead:
                     # One or more components died, restart
                     if not self.stop_event.is_set() and self.current_name and self.current_url:
                         logger.warning(
-                            "Failure detected (sox_dead=%s, pifmrds_dead=%s, metadata_dead=%s), restarting...",
-                            sox_dead,
+                            "Failure detected (ffmpeg_dead=%s, pifmrds_dead=%s, metadata_dead=%s), restarting...",
+                            ffmpeg_dead,
                             pifmrds_dead,
                             metadata_dead,
                         )
