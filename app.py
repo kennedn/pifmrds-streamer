@@ -370,7 +370,6 @@ class RadioController:
             try:
                 if pif.stdin:
                     pif.stdin.write(mapinfo.data)
-                    pif.stdin.flush()
                     last_audio_write_monotonic = time.monotonic()
             except BrokenPipeError:
                 GLib.idle_add(request_restart, "pifmrds stdin broken pipe")
