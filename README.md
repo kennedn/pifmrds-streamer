@@ -48,7 +48,7 @@ uv pip install -r pyproject.toml
 State is stored as JSON at:
 
 ```text
-root/.config/pifmrds-streamer/stations.json
+/root/.config/pifmrds-streamer/stations.json
 ```
 
 This file contains the station list and the last selected station. It can be edited manually when the service is stopped.
