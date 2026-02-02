@@ -494,7 +494,7 @@ TEMPLATE = """
           <span style="color: var(--danger);">Stopped</span>
         {% endif %}
       </h3>
-      <div><strong>{{ freq }} - {{ now_name or "—" }}</strong></div>
+      <div><strong>{{ freq }}{{ " | " ~ now_name if now_name else "" }}</strong></div>
       <div class="muted">{{ now_url or "" }}</div>
       <div class="muted">{{ rds or "—" }}</div>
 
