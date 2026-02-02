@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-"""
-pifmrds-streamer (GStreamer edition)
-- Flask UI + state persistence + logging (from the ffmpeg implementation)
-- Audio decode via GStreamer -> wavenc -> appsink -> piped into pifmrds stdin
-- RDS PS/RT updated from GStreamer TAG messages (title/org)
-"""
-
 import json
 import logging
 import os
