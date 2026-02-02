@@ -19,7 +19,16 @@ Install required system packages:
 
 ```bash
 sudo apt update
-sudo apt install -y ffmpeg python3 python3-venv
+sudo apt install -y \
+  python3 \
+  python3-venv \
+  python3-gi \
+  gir1.2-gstreamer-1.0 \
+  gstreamer1.0-tools \
+  gstreamer1.0-plugins-base \
+  gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-bad \
+  gstreamer1.0-libav
 ```
 
 Install PiFmRds separately by following the official instructions:
@@ -39,7 +48,7 @@ Install uv:
 From the project directory:
 
 ```bash
-uv venv
+uv venv --system-site-packages
 source .venv/bin/activate
 uv pip install -r pyproject.toml
 ```

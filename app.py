@@ -394,13 +394,13 @@ class RadioController:
                     last_title = title
                     with self._lock:
                         self.last_title = title
-                    logger.info("TAG title: %s", title)
+                    logger.info("RT: %s", title)
                     self._ctl_send(f"RT {safe_rt(title)}")
 
                 ok, org = taglist.get_string("organization")
                 if ok and org and org != last_org:
                     last_org = org
-                    logger.info("TAG organization: %s", org)
+                    logger.info("PS: %s", org)
                     self._ctl_send(f"PS {safe_ps(org)}")
 
             elif t == Gst.MessageType.ERROR:
