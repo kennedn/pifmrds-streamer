@@ -201,7 +201,7 @@ class RadioController:
 
         # Start ffmpeg (exact original command)
         self.ffmpeg_proc = subprocess.Popen(
-            ["ffmpeg","-hide_banner","-loglevel","error","-reconnect","1","-reconnect_streamed","1","-reconnect_delay_max","5","-i",url,"-vn","-acodec","pcm_s16le","-f","wav","-"],
+                ["ffmpeg","-hide_banner","-loglevel","error","-reconnect","1","-reconnect_streamed","1","-reconnect_delay_max","5","-i",url,"-vn","-af", "aresample=async=1:min_hard_comp=0.100:first_pts=0","-acodec","pcm_s16le","-f","wav","-"],
             stdout=self.pifmrds_proc.stdin,
             stderr=subprocess.PIPE,
         )
