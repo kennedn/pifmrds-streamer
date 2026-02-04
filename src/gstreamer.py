@@ -15,14 +15,14 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 import gi
-from gi.repository import Gst, GLib
+gi.require_version("Gst", "1.0")
+gi.require_version("GLib", "2.0")
+from gi.repository import Gst, GLib #pylint: disable=C0413
 
+Gst.init(None)
 
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
-gi.require_version("Gst", "1.0")
-gi.require_version("GLib", "2.0")
-Gst.init(None)
 
 logger = logging.getLogger(__name__)
 
