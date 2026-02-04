@@ -6,7 +6,6 @@ from src.gstreamer import (
     DEFAULT_STATION_NAME,
     DEFAULT_STREAM_URL,
     RadioController,
-    load_state_json,
     save_state_json,
 )
 
@@ -20,7 +19,6 @@ def create_app(ctl: RadioController) -> Flask:
 
     @app.route("/")
     def index():
-        load_state_json()
         return render_template(
             "index.html",
             stations=ctl.stations,
