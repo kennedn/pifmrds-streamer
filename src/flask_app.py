@@ -1,4 +1,5 @@
 """Flask web application for pifmrds-streamer."""
+import os
 from flask import Flask, redirect, render_template, request
 
 from src.gstreamer import (
@@ -8,16 +9,18 @@ from src.gstreamer import (
     save_state_json,
 )
 
-app = Flask(__name__)
-
 
 def create_app(ctl: RadioController) -> Flask:
     """Create and configure the Flask application."""
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    templates_dir = os.path.join(project_root, "templates")
+    static_dir = os.path.join(project_root, "static")
+    app = Flask(__name__, template_folder=templates_dir, static_folder=static_dir)
 
     @app.route("/")
     def index():
         return render_template(
-            "templates/index.html",
+            "index.html",
             stations=ctl.stations,
             freq=ctl.freq,
             now_name=ctl.current_name,
