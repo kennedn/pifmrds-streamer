@@ -91,7 +91,7 @@ def load_state_json() -> Tuple[Dict[str, str], Optional[str], Optional[str]]:
     if isinstance(loaded_freq, str):
         freq = loaded_freq
 
-    stations = data.get("stations", {DEFAULT_STATION_NAME: DEFAULT_STREAM_URL})
+    stations = data.get("stations", stations)
     stations = reorder_stations(stations, last)
 
     return stations, last, freq
@@ -101,7 +101,7 @@ def reorder_stations(stations: Dict[str, str], last: Optional[str]) -> Dict[str,
     """Return a new stations dict with last selected station first."""
     if last is None or last not in stations:
         return stations
-    last_url = stations.get(last, DEFAULT_STREAM_URL)
+    last_url = stations[last]
     stations = stations.copy()
     stations.pop(last)
     return {last: last_url, **stations}
@@ -219,7 +219,7 @@ class RadioController:
         # Stop existing run first (outside lock to let joins happen cleanly)
         self.stop()
 
-        
+
         with self._lock:
             self.stop_event.clear()
             self.current_name = name

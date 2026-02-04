@@ -40,7 +40,6 @@ def main() -> None:
     ctl.last_station = last
     ctl.freq = freq_val
 
-    save_state_json(stations, last, freq_val)
     ctl.startup_autoplay()
 
     app = create_app(ctl)
