@@ -59,6 +59,7 @@ def create_app(ctl: RadioController) -> Flask:
 
     @app.post("/select")
     def select():
+        save_state_json(ctl.stations, ctl.last_station, ctl.freq)
         name = request.form["name"]
         ctl.start(name, ctl.stations[name])
         return redirect("/")
