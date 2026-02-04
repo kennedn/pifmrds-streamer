@@ -17,7 +17,7 @@ def create_app(ctl: RadioController) -> Flask:
     @app.route("/")
     def index():
         return render_template(
-            "index.html",
+            "templates/index.html",
             stations=ctl.stations,
             freq=ctl.freq,
             now_name=ctl.current_name,
