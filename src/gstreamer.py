@@ -312,7 +312,7 @@ class RadioController:
         pipeline_str = (
             f'uridecodebin uri="{url}" name=d '
             f'd. ! queue ! audioconvert ! audioresample '
-            f'! audio/x-raw,format=S16LE,rate=38000,channels=2 '
+            f'! audio/x-raw,format=S16LE,rate=76000,channels=2 '
             f'! wavenc ! appsink name=out emit-signals=true sync=false max-buffers=200 drop=false'
         )
         pipeline = Gst.parse_launch(pipeline_str)
