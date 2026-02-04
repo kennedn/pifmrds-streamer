@@ -83,10 +83,6 @@ def load_state_json() -> Tuple[Dict[str, str], Optional[str], Optional[str]]:
         logger.exception("Error loading state file %s", STATE_FILE)
         return stations, last, freq
 
-    loaded_stations = data.get("stations", {}) or {}
-    loaded_stations.pop(DEFAULT_STATION_NAME, None)  # ensure default remains first
-    stations.update(loaded_stations)
-
     loaded_last = data.get("last")
     if isinstance(loaded_last, str) and loaded_last in stations:
         last = loaded_last
@@ -94,6 +90,10 @@ def load_state_json() -> Tuple[Dict[str, str], Optional[str], Optional[str]]:
     loaded_freq = data.get("freq")
     if isinstance(loaded_freq, str):
         freq = loaded_freq
+
+    loaded_stations = data.get("stations", {}) or {}
+    loaded_stations.pop(last, None)  # ensure last loaded is placed first
+    stations.update(loaded_stations)
 
     return stations, last, freq
 
