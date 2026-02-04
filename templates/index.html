@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>pifmrds-streamer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <header><h1>pifmrds-streamer</h1></header>
+    <main>
+      <div class="card">
+        <h3>
+          {% if is_playing %}
+            <span style="color: var(--accent);">Playing</span>
+          {% else %}
+            <span style="color: var(--danger);">Stopped</span>
+          {% endif %}
+        </h3>
+        <div><strong>{{ freq }}{{ " | " ~ now_name if now_name else "" }}</strong></div>
+        <div class="muted">{{ now_url or "" }}</div>
+        <div class="muted">{{ rds or "—" }}</div>
+        <div class="station-actions">
+          <form method="post" action="/stop">
+            <button class="danger" type="submit" aria-label="Stop">
+              <span class="material-symbols-outlined">stop</span>
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Set Frequency</h3>
+        <form method="post" action="/freq" style="margin-top:10px;">
+          <div class="row">
+            <div class="grow">
+              <input type="text" name="freq" placeholder="{{ freq }}" required>
+            </div>
+          </div>
+          <div style="margin-top:10px;">
+            <button class="primary" type="submit">
+              <span class="material-symbols-outlined">save</span>
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h3>Add / update station</h3>
+        <form method="post" action="/add" style="margin-top:10px;">
+          <div class="row">
+            <div class="grow">
+              <input type="text" name="name" placeholder="Station name" required>
+            </div>
+            <div class="grow">
+              <input type="text" name="url" placeholder="Stream URL" required>
+            </div>
+          </div>
+          <div style="margin-top:10px;">
+            <button class="primary" type="submit">
+              <span class="material-symbols-outlined">save</span>
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <h2>Stations</h2>
+
+      {% for name, url in stations.items() %}
+        <div class="card">
+          <div><strong>{{ name }}</strong></div>
+          <div class="muted">{{ url }}</div>
+
+          <div class="station-actions">
+            <form method="post" action="/select">
+              <input type="hidden" name="name" value="{{ name }}">
+              <button class="primary" type="submit" aria-label="Play">
+                <span class="material-symbols-outlined">play_arrow</span>
+              </button>
+            </form>
+
+            {% if name != default %}
+              <form method="post" action="/delete"
+                    onsubmit="return confirm('Delete station {{ name }}?');">
+                <input type="hidden" name="name" value="{{ name }}">
+                <button class="danger" type="submit" aria-label="Delete">
+                  <span class="material-symbols-outlined">delete</span>
+                </button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </main>
+  </body>
+</html>
